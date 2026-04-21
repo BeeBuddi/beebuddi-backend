@@ -1,0 +1,15 @@
+{
+  "name": "beebuddi-backend",
+  "version": "1.0.0",
+  "description": "BeeBuddi backend server for subscriptions, master keys, inspections, and Stripe integration.",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "express": "^4.18.2",
+    "body-parser": "^1.20.2",
+    "cors": "^2.8.5",
+    "stripe": "^14.0.0"
+  }
+}
