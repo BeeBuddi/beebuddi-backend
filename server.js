@@ -6,6 +6,8 @@ const bodyParser = require("body-parser");
 const cors = require("cors");
 const Stripe = require("stripe");
 const mongoose = require("mongoose");
+const bcrypt = require("bcryptjs");
+const jwt = require("jsonwebtoken");
 
 const app = express();
 const port = process.env.PORT || 4000;
@@ -14,6 +16,7 @@ const port = process.env.PORT || 4000;
 const STRIPE_SECRET_KEY = process.env.STRIPE_SECRET_KEY || "sk_test_xxx";
 const STRIPE_WEBHOOK_SECRET = process.env.STRIPE_WEBHOOK_SECRET || "whsec_xxx";
 const MONGODB_URI = process.env.MONGODB_URI;
+const JWT_SECRET = process.env.JWT_SECRET || "changeme_in_render";
 
 const stripe = new Stripe(STRIPE_SECRET_KEY, {
   apiVersion: "2023-10-16",
@@ -33,6 +36,8 @@ if (MONGODB_URI) {
 
 const userSchema = new mongoose.Schema({
   userId: { type: String, required: true, unique: true },
+  email: { type: String, default: null },
+  passwordHash: { type: String, default: null },
   stripeCustomerId: { type: String, default: null },
   subscriptionStatus: {
     type: String,
@@ -68,9 +73,25 @@ mongoose.connection.once("open", seedMasterKeys);
 app.use(cors());
 app.use(bodyParser.json());
 
+// JWT Auth Middleware — verifies token on protected routes
+function requireAuth(req, res, next) {
+  const authHeader = req.headers["authorization"];
+  if (!authHeader || !authHeader.startsWith("Bearer ")) {
+    return res.status(401).json({ error: "Missing or invalid token" });
+  }
+  const token = authHeader.split(" ")[1];
+  try {
+    const decoded = jwt.verify(token, JWT_SECRET);
+    req.userId = decoded.userId;
+    next();
+  } catch (err) {
+    return res.status(401).json({ error: "Token expired or invalid" });
+  }
+}
+
+// Attach user from DB (used on subscription + master key routes)
 async function attachUser(req, res, next) {
-  const userId =
-    req.headers["x-user-id"] || req.query.userId || null;
+  const userId = req.userId || req.headers["x-user-id"] || req.query.userId || null;
   if (!userId) {
     req.user = null;
     return next();
@@ -83,8 +104,7 @@ async function attachUser(req, res, next) {
   next();
 }
 
-app.use(attachUser);
-
+// Enforce active or master subscription
 function enforceSubscription(req, res, next) {
   const user = req.user;
   if (!user) return res.status(401).json({ error: "Unauthenticated" });
@@ -150,15 +170,60 @@ async function updateUserByCustomer(customerId, status) {
   console.log(`Updated ${result.modifiedCount} user(s) to ${mapped}`);
 }
 
+// --- Auth Routes ---
+
+// Register a new user
+app.post("/api/auth/register", async (req, res) => {
+  const { email, password } = req.body;
+  if (!email || !password)
+    return res.status(400).json({ error: "Email and password required" });
+
+  const existing = await User.findOne({ email });
+  if (existing)
+    return res.status(400).json({ error: "Email already registered" });
+
+  const passwordHash = await bcrypt.hash(password, 10);
+  const userId = new mongoose.Types.ObjectId().toString();
+
+  const user = await User.create({ userId, email, passwordHash });
+
+  const token = jwt.sign({ userId: user.userId }, JWT_SECRET, {
+    expiresIn: "30d",
+  });
+
+  res.json({ ok: true, token, userId: user.userId });
+});
+
+// Login
+app.post("/api/auth/login", async (req, res) => {
+  const { email, password } = req.body;
+  if (!email || !password)
+    return res.status(400).json({ error: "Email and password required" });
+
+  const user = await User.findOne({ email });
+  if (!user || !user.passwordHash)
+    return res.status(401).json({ error: "Invalid email or password" });
+
+  const match = await bcrypt.compare(password, user.passwordHash);
+  if (!match)
+    return res.status(401).json({ error: "Invalid email or password" });
+
+  const token = jwt.sign({ userId: user.userId }, JWT_SECRET, {
+    expiresIn: "30d",
+  });
+
+  res.json({ ok: true, token, userId: user.userId });
+});
+
 // --- Routes ---
 
-app.get("/api/subscription-status", (req, res) => {
+app.get("/api/subscription-status", requireAuth, attachUser, (req, res) => {
   const user = req.user;
   if (!user) return res.status(401).json({ error: "Missing user" });
   res.json({ status: user.subscriptionStatus });
 });
 
-app.post("/api/activate-master-key", async (req, res) => {
+app.post("/api/activate-master-key", requireAuth, attachUser, async (req, res) => {
   const user = req.user;
   if (!user) return res.status(401).json({ error: "Missing user" });
 
@@ -184,13 +249,25 @@ app.post("/api/activate-master-key", async (req, res) => {
   res.json({ ok: true, status: "master" });
 });
 
-app.post("/api/inspections/create", enforceSubscription, (req, res) => {
-  res.json({ ok: true, message: "Inspection created (demo)" });
-});
+app.post(
+  "/api/inspections/create",
+  requireAuth,
+  attachUser,
+  enforceSubscription,
+  (req, res) => {
+    res.json({ ok: true, message: "Inspection created (demo)" });
+  }
+);
 
-app.post("/api/inspections/export", enforceSubscription, (req, res) => {
-  res.json({ ok: true, message: "Export generated (demo)" });
-});
+app.post(
+  "/api/inspections/export",
+  requireAuth,
+  attachUser,
+  enforceSubscription,
+  (req, res) => {
+    res.json({ ok: true, message: "Export generated (demo)" });
+  }
+);
 
 app.get("/health", (req, res) => {
   res.json({ status: "ok" });
