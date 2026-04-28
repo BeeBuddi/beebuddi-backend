@@ -168,6 +168,10 @@ app.post("/api/inspections/create", enforceSubscription, (req, res) => {
 app.post("/api/inspections/export", enforceSubscription, (req, res) => {
   res.json({ ok: true, message: "Export generated (demo)" });
 });
+// Health check endpoint
+app.get("/health", (req, res) => {
+  res.json({ status: "ok" });
+});
 
 app.listen(port, () => {
   console.log(`BeeBuddi backend running on http://localhost:${port}`);
