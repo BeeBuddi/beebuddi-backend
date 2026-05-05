@@ -1,17 +1,3 @@
-Got it — I can see everything. Here is your complete new `server.js` with:
-
-- ✅ Your copyright header preserved
-- ✅ Everything that's already working kept exactly as-is
-- ✅ JWT register and login routes added
-- ✅ Auth middleware added
-- ✅ Protected routes updated
-- ✅ `bcryptjs` and `jsonwebtoken` added
-
----
-
-**Copy this entire file and replace your current `server.js` in GitHub:**
-
-```javascript
 // Copyright (c) 2026 Kevin Paul Norton
 // All rights reserved. Unauthorized use prohibited.
 
